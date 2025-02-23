@@ -1,0 +1,98 @@
+//@version=6
+// X: @InvestingBeast
+indicator("InvestingBeast TRP Tarama", overlay=true)
+
+// Market Cap'i En Yüksek 5 Kripto Para Birimi (Güncel veriyi kontrol edin!)
+// Perpütüel sözleşme sembolleri (TradingView'de kullanılan sembollerle eşleşmelidir)
+symStr = "BINANCE:BTCUSDT.P,BINANCE:ETHUSDT.P,BINANCE:BNBUSDT.P,BINANCE:XRPUSDT.P,BINANCE:ADAUSDT.P"
+
+// Taranacak zaman dilimleri
+timeframes = "1,5,15,30" // 1 dakika, 5 dakika, 15 dakika, 30 dakika
+
+// Zaman dilimlerini ve sembolleri diziye dönüştür
+tfArray = str.split(timeframes, ",")
+symArray = str.split(symStr, ",")
+
+// Boyutları hesapla
+symCount = array.size(symArray)
+timeFrameCount = array.size(tfArray)
+totalRows = symCount * timeFrameCount + 1 // +1 başlık satırı için
+
+// TD Sequential hesaplama fonksiyonu
+f_td_seq() =>
+    var float _bs = 0.0
+    var float _ss = 0.0
+    var bool _perfectBuySetup = false
+    var bool _perfectSellSetup = false
+    var bool _perfectBuyCountdown13 = false
+    var bool _perfectSellCountdown13 = false
+    var float _bc = 0.0  //Buy Countdown Sayacı
+    var float _sc = 0.0  //Sell Countdown Sayacı
+
+    // Setup: 4 bar öncesine göre sayım, maksimum 9
+    _bs := close < close[4] ? math.min(nz(_bs[1]) + 1, 9) : 0
+    _ss := close > close[4] ? math.min(nz(_ss[1]) + 1, 9) : 0
+
+    // Mükemmel Setup kontrolü (sayım 9 olduğunda)
+    if _bs == 9
+        float low8or9 = math.min(low[7], low[8])
+        _perfectBuySetup := low8or9 < ta.lowest(low, 50)
+
+    if _ss == 9
+        float high8or9 = math.max(high[7], high[8])
+        _perfectSellSetup := high8or9 > ta.highest(high, 50)
+
+    // Countdown: Setup tamamlandığında (bs veya ss == 9) 2 bar öncesine göre sayım (limit: 13 bekleniyor)
+    _bc := _bs == 9 ? (close <= low[2] ? math.min(nz(_bc[1]) + 1,13) : 0) : 0
+    _sc := _ss == 9 ? (close >= high[2] ? math.min(nz(_sc[1]) + 1,13) : 0) : 0
+
+    // Mükemmel 13 Kontrolü (Basit örnek - geliştirilebilir)
+    _perfectBuyCountdown13 := _bc == 13
+    _perfectSellCountdown13 := _sc == 13
+
+    [_bs, _ss, _perfectBuySetup, _perfectSellSetup, _perfectBuyCountdown13, _perfectSellCountdown13, _bc, _sc]
+
+// Tablo oluşturma
+var table scanTable = table.new(position.top_right, 4, totalRows, border_width=1)
+
+// Tablo başlıklarını ayarla
+if barstate.isfirst
+    table.cell(scanTable, 0, 0, "Sembol", text_color=color.white, bgcolor=color.blue, text_size=size.normal)
+    table.cell(scanTable, 1, 0, "Zaman Dilimi", text_color=color.white, bgcolor=color.blue, text_size=size.normal)
+    table.cell(scanTable, 2, 0, "Setup (BS/SS)", text_color=color.white, bgcolor=color.blue, text_size=size.normal)
+    table.cell(scanTable, 3, 0, "Durum", text_color=color.white, bgcolor=color.blue, text_size=size.normal)
+
+// Tablo içeriğini oluştur
+row = 1
+for i = 0 to symCount - 1
+    sym = str.trim(array.get(symArray, i))
+    for j = 0 to timeFrameCount - 1
+        tf = str.trim(array.get(tfArray, j))
+
+        // TD Sequential verilerini al
+        [bs, ss, perfectBuy, perfectSell, perfectBuyCountdown13, perfectSellCountdown13, bc, sc] = request.security(sym, tf, f_td_seq())
+
+        // Metinleri hazırla
+        string setupText = "BS:" + str.tostring(bs, "#") + " SS:" + str.tostring(ss, "#")
+        string durum = ""
+
+        if perfectBuyCountdown13
+            durum := "Mükemmel 13 Alış Tamamlandı"
+        else if perfectSellCountdown13
+            durum := "Mükemmel 13 Satış Tamamlandı"
+        else if perfectBuy
+            durum := "Mükemmel 9 Alış Tamamlandı"
+        else if perfectSell
+            durum := "Mükemmel 9 Satış Tamamlandı"
+        else if bs >= 7 and bs < 9
+            durum := "Buy Setup 7 Üzerinde, Mükemmel 9 Bekleniyor"
+        else if ss >= 7 and ss < 9
+            durum := "Sell Setup 7 Üzerinde, Mükemmel 9 Bekleniyor"
+
+        // Tabloya verileri ekle
+        table.cell(scanTable, 0, row, sym, text_color=color.white, bgcolor=color.red, text_size=size.small)
+        table.cell(scanTable, 1, row, tf, text_color=color.white, bgcolor=color.red, text_size=size.small)
+        table.cell(scanTable, 2, row, setupText, text_color=color.white, bgcolor=color.red, text_size=size.small)
+        table.cell(scanTable, 3, row, durum, text_color=color.white, bgcolor=color.red, text_size=size.small)
+
+        row := row + 1
